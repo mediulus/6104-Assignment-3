@@ -137,8 +137,8 @@ This feature is highly useful for two primary reasons. First, it keeps the coach
 
 ## Implement your concept
 
-[Implementation](../project%20implementation/training-records-ai/src/training-records.ts)
-[Spec](../project%20implementation/training-records-ai/src/training-records.spec)
+[Implementation](./src/training-records.ts)
+[Spec](./src/training-records.spec)
 
 [Test suit](../project%20implementation/training-records-ai/src/training-records-tests.ts)
 
