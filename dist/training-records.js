@@ -1,0 +1,450 @@
+"use strict";
+/**
+ * TrainingRecords Concept - AI Augmented Version
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TrainingRecords = void 0;
+class TrainingRecords {
+    constructor() {
+        this.records = [];
+        this.users = [];
+        this.nextId = 1;
+    }
+    // User management
+    addUser(user) {
+        this.users.push(user);
+    }
+    getUser(id) {
+        return this.users.find((u) => u.id === id);
+    }
+    // Date utilities
+    dateToString(date) {
+        return `${date.year}-${date.month.toString().padStart(2, "0")}-${date.day
+            .toString()
+            .padStart(2, "0")}`;
+    }
+    getWeekStart(date) {
+        // Simple week start calculation (Monday)
+        const d = new globalThis.Date(date.year, date.month - 1, date.day);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is Sunday
+        d.setDate(diff);
+        return {
+            year: d.getFullYear(),
+            month: d.getMonth() + 1,
+            day: d.getDate(),
+        };
+    }
+    getTotalMileageThisWeek(athlete, onDate) {
+        const weekStart = this.getWeekStart(onDate);
+        const weekEnd = this.addDays(weekStart, 6);
+        const onOrAfter = (d, a) => (d.year > a.year) ||
+            (d.year === a.year && d.month > a.month) ||
+            (d.year === a.year && d.month === a.month && d.day >= a.day);
+        const onOrBefore = (d, b) => (d.year < b.year) ||
+            (d.year === b.year && d.month < b.month) ||
+            (d.year === b.year && d.month === b.month && d.day <= b.day);
+        return this.records
+            .filter(r => r.athlete.id === athlete.id &&
+            onOrAfter(r.date, weekStart) &&
+            onOrBefore(r.date, weekEnd))
+            .reduce((sum, r) => sum + (r.athleteData?.mileage ?? 0), 0);
+    }
+    addDays(date, days) {
+        const d = new globalThis.Date(date.year, date.month - 1, date.day);
+        d.setDate(d.getDate() + days);
+        return {
+            year: d.getFullYear(),
+            month: d.getMonth() + 1,
+            day: d.getDate(),
+        };
+    }
+    // Basic CRUD operations
+    createRecord(coach, athlete, date, percentage, note) {
+        // Validation
+        if (coach.role !== "coach") {
+            throw new Error("Only coaches can create records");
+        }
+        if (athlete.role !== "athlete") {
+            throw new Error("Only athletes can have records");
+        }
+        // Check for existing record
+        const existing = this.records.find((r) => r.athlete.id === athlete.id &&
+            r.date.year === date.year &&
+            r.date.month === date.month &&
+            r.date.day === date.day);
+        if (existing) {
+            throw new Error("Record already exists for this athlete on this date");
+        }
+        // ✅ use athlete's baseline mileage (personal characteristic)
+        const baselineWeeklyMileage = athlete.mileage ?? 0;
+        const pct = percentage ?? undefined; // keep 0 valid if passed
+        const mileageRecommendation = pct !== undefined
+            ? Math.round(baselineWeeklyMileage * (pct / 100) * 10) / 10
+            : 0;
+        const record = {
+            id: this.nextId.toString(),
+            date,
+            athlete,
+            coachRecommendations: percentage !== undefined || note !== undefined
+                ? {
+                    percentage: percentage ?? 0,
+                    note: note ?? "",
+                }
+                : undefined,
+            mileageRecommendation,
+        };
+        this.records.push(record);
+        this.nextId++;
+        return record;
+    }
+    updateCoachFields(coach, record, percentage, note) {
+        if (coach.role !== "coach") {
+            throw new Error("Only coaches can update coach fields");
+        }
+        const newPct = percentage !== undefined
+            ? percentage
+            : record.coachRecommendations?.percentage ?? 0;
+        record.coachRecommendations = {
+            percentage: newPct,
+            note: note !== undefined ? note : record.coachRecommendations?.note ?? "",
+        };
+        //  Recompute mileage recommendation when % changes
+        const athleteMileage = this.getAthleteMileage(record.athlete);
+        record.mileageRecommendation =
+            newPct !== undefined
+                ? Math.round(athleteMileage * (newPct / 100) * 10) / 10
+                : 0;
+        return record;
+    }
+    logAthleteData(athlete, record, data) {
+        if (athlete.role !== "athlete") {
+            throw new Error("Only athletes can log athlete data");
+        }
+        if (record.athlete.id !== athlete.id) {
+            throw new Error("Athlete can only log data for their own records");
+        }
+        record.athleteData = data;
+        return record;
+    }
+    getAthleteMileage(athlete) {
+        return this.records
+            .filter((r) => r.athlete.id === athlete.id) // take only that athlete’s records
+            .reduce((sum, r) => sum + (r.athleteData?.mileage || 0), 0);
+    }
+    updateAthleteData(athlete, record, data) {
+        if (athlete.role !== "athlete") {
+            throw new Error("Only athletes can update athlete data");
+        }
+        if (record.athlete.id !== athlete.id) {
+            throw new Error("Athlete can only update data for their own records");
+        }
+        record.athleteData = { ...record.athleteData, ...data };
+        return record;
+    }
+    deleteRecord(actor, record) {
+        const recordIndex = this.records.findIndex((r) => r.id === record.id);
+        if (recordIndex === -1) {
+            throw new Error("Record not found");
+        }
+        // Check permissions
+        if (actor.role === "athlete" && record.athlete.id !== actor.id) {
+            throw new Error("Athletes can only delete their own records");
+        }
+        if (actor.role === "coach" && record.athlete.teamId !== actor.teamId) {
+            throw new Error("Coaches can only delete records for athletes on their team");
+        }
+        this.records.splice(recordIndex, 1);
+    }
+    checkMissingCoachData(athlete, weekStart) {
+        const missingDays = [];
+        for (let i = 0; i < 7; i++) {
+            const date = this.addDays(weekStart, i);
+            const record = this.records.find((r) => r.athlete.id === athlete.id &&
+                r.date.year === date.year &&
+                r.date.month === date.month &&
+                r.date.day === date.day);
+            if (!record || !record.coachRecommendations) {
+                missingDays.push(this.dateToString(date));
+            }
+        }
+        return missingDays;
+    }
+    checkMissingAthleteData(athlete, weekStart) {
+        const missingDays = [];
+        for (let i = 0; i < 7; i++) {
+            const date = this.addDays(weekStart, i);
+            const record = this.records.find((r) => r.athlete.id === athlete.id &&
+                r.date.year === date.year &&
+                r.date.month === date.month &&
+                r.date.day === date.day);
+            if (!record || !record.athleteData) {
+                missingDays.push(this.dateToString(date));
+            }
+        }
+        return missingDays;
+    }
+    computeWeeklySummary(athlete, weekStart) {
+        const weekEnd = this.addDays(weekStart, 6);
+        // Get all records for this athlete in this week
+        const weekRecords = this.records.filter((r) => {
+            if (r.athlete.id !== athlete.id)
+                return false;
+            const recordDate = r.date;
+            return ((recordDate.year > weekStart.year ||
+                (recordDate.year === weekStart.year &&
+                    recordDate.month > weekStart.month) ||
+                (recordDate.year === weekStart.year &&
+                    recordDate.month === weekStart.month &&
+                    recordDate.day >= weekStart.day)) &&
+                (recordDate.year < weekEnd.year ||
+                    (recordDate.year === weekEnd.year &&
+                        recordDate.month < weekEnd.month) ||
+                    (recordDate.year === weekEnd.year &&
+                        recordDate.month === weekEnd.month &&
+                        recordDate.day <= weekEnd.day)));
+        });
+        // Calculate totals and averages
+        let totalMileage = 0;
+        let totalStress = 0;
+        let totalSleep = 0;
+        let totalRestingHeartRate = 0;
+        let totalExerciseHeartRate = 0;
+        let validStressCount = 0;
+        let validSleepCount = 0;
+        let validRestingHeartRateCount = 0;
+        let validExerciseHeartRateCount = 0;
+        for (const record of weekRecords) {
+            if (record.athleteData?.mileage) {
+                totalMileage += record.athleteData.mileage;
+            }
+            if (record.athleteData?.stress !== undefined) {
+                totalStress += record.athleteData.stress;
+                validStressCount++;
+            }
+            if (record.athleteData?.sleep !== undefined) {
+                totalSleep += record.athleteData.sleep;
+                validSleepCount++;
+            }
+            if (record.athleteData?.restingHeartRate !== undefined) {
+                totalRestingHeartRate += record.athleteData.restingHeartRate;
+                validRestingHeartRateCount++;
+            }
+            if (record.athleteData?.exerciseHeartRate !== undefined) {
+                totalExerciseHeartRate += record.athleteData.exerciseHeartRate;
+                validExerciseHeartRateCount++;
+            }
+        }
+        const averageStress = validStressCount > 0 ? totalStress / validStressCount : 0;
+        const averageSleep = validSleepCount > 0 ? totalSleep / validSleepCount : 0;
+        const averageRestingHeartRate = validRestingHeartRateCount > 0
+            ? totalRestingHeartRate / validRestingHeartRateCount
+            : 0;
+        const averageExerciseHeartRate = validExerciseHeartRateCount > 0
+            ? totalExerciseHeartRate / validExerciseHeartRateCount
+            : 0;
+        // Calculate trend direction (simplified - avoid recursion for now)
+        let trendDirection = "flat";
+        // Simple trend calculation based on current week data
+        if (weekRecords.length >= 2) {
+            const sortedRecords = weekRecords.sort((a, b) => {
+                if (a.date.year !== b.date.year)
+                    return a.date.year - b.date.year;
+                if (a.date.month !== b.date.month)
+                    return a.date.month - b.date.month;
+                return a.date.day - b.date.day;
+            });
+            const firstHalf = sortedRecords.slice(0, Math.floor(sortedRecords.length / 2));
+            const secondHalf = sortedRecords.slice(Math.floor(sortedRecords.length / 2));
+            const firstHalfMileage = firstHalf.reduce((sum, r) => sum + (r.athleteData?.mileage || 0), 0);
+            const secondHalfMileage = secondHalf.reduce((sum, r) => sum + (r.athleteData?.mileage || 0), 0);
+            if (secondHalfMileage > firstHalfMileage * 1.1) {
+                trendDirection = "up";
+            }
+            else if (secondHalfMileage < firstHalfMileage * 0.9) {
+                trendDirection = "down";
+            }
+        }
+        return {
+            athlete,
+            weekStart,
+            totalMileage,
+            averageStress,
+            averageSleep,
+            averageRestingHeartRate,
+            averageExerciseHeartRate,
+            trendDirection,
+            previousWeekComparison: {
+                mileageChange: 0, // Simplified for now
+                stressChange: 0,
+                sleepChange: 0,
+            },
+        };
+    }
+    // AI Augmentation - Main method
+    async summarizeAndRecommend(athlete, llm, weekStartDate) {
+        try {
+            console.log(`🤖 Generating AI recommendation for ${athlete.name}...`);
+            const weeklySummary = this.computeWeeklySummary(athlete, weekStartDate);
+            const missingCoachData = this.checkMissingCoachData(athlete, weekStartDate);
+            const missingAthleteData = this.checkMissingAthleteData(athlete, weekStartDate);
+            // Optional: collect a compact per-day table for the week (no “new” data)
+            const weekDays = Array.from({ length: 7 }, (_, i) => {
+                const date = this.addDays(weekStartDate, i);
+                const rec = this.records.find(r => r.athlete.id === athlete.id &&
+                    r.date.year === date.year &&
+                    r.date.month === date.month &&
+                    r.date.day === date.day);
+                const d = rec?.athleteData;
+                return {
+                    date: this.dateToString(date),
+                    mileage: d?.mileage,
+                    stress: d?.stress,
+                    sleep: d?.sleep,
+                    rhr: d?.restingHeartRate,
+                    ehr: d?.exerciseHeartRate,
+                    pe: d?.perceivedExertion,
+                };
+            });
+            const prompt = this.createRecommendationPrompt(weeklySummary, missingCoachData, missingAthleteData, weekDays // new optional param
+            );
+            const response = await llm.executeLLM(prompt);
+            console.log("✅ Received AI recommendation!");
+            console.log("\n🤖 RAW GEMINI RESPONSE");
+            console.log("======================");
+            console.log(response);
+            console.log("======================\n");
+            return { recommendation: response };
+        }
+        catch (error) {
+            console.error("❌ Error generating AI recommendation:", error.message);
+            throw error;
+        }
+    }
+    createRecommendationPrompt(weeklySummary, missingCoachData, missingAthleteData, weekDays) {
+        const dailyLines = (weekDays ?? [])
+            .map((d) => `- ${d.date}:` +
+            ` mileage=${d.mileage ?? "N/A"},` +
+            ` stress=${d.stress ?? "N/A"},` +
+            ` sleep=${d.sleep ?? "N/A"}h,` +
+            ` RHR=${d.rhr ?? "N/A"} bpm,` +
+            ` EHR=${d.ehr ?? "N/A"} bpm,` +
+            ` PE=${d.pe ?? "N/A"}`)
+            .join("\n");
+        const weeklyTrendsSection = `
+  WEEKLY TRENDS:
+  - Total Mileage: ${weeklySummary.totalMileage.toFixed(1)} miles
+  - Average Stress: ${weeklySummary.averageStress.toFixed(1)}/10
+  - Average Sleep: ${weeklySummary.averageSleep.toFixed(1)} hours
+  - Average Resting Heart Rate: ${weeklySummary.averageRestingHeartRate.toFixed(0)} bpm
+  - Average Exercise Heart Rate: ${weeklySummary.averageExerciseHeartRate.toFixed(0)} bpm
+  - Trend Direction: ${weeklySummary.trendDirection}
+  - Mileage Change: ${weeklySummary.previousWeekComparison?.mileageChange.toFixed?.(1) ?? "N/A"} miles
+  - Stress Change: ${weeklySummary.previousWeekComparison?.stressChange.toFixed?.(1) ?? "N/A"}/10
+  - Sleep Change: ${weeklySummary.previousWeekComparison?.sleepChange.toFixed?.(1) ?? "N/A"} hours`;
+        const missingDataSection = `
+  MISSING DATA ALERTS:
+  - Coach hasn't set plan for: ${missingCoachData.length > 0 ? missingCoachData.join(", ") : "None"}
+  - Athlete hasn't logged data for: ${missingAthleteData.length > 0 ? missingAthleteData.join(", ") : "None"}`;
+        const dailySection = weekDays && weekDays.length ? `\nDAILY LOGS (this week):\n${dailyLines}\n` : "";
+        return `
+  You are an AI assistant helping coaches analyze athlete training data and provide actionable insights.
+  
+  ${weeklyTrendsSection}
+  ${dailySection}
+  ${missingDataSection}
+  
+  INSTRUCTIONS:
+  1. Use knowledge from previous weeks to see trends
+  2. Look for persistent, multi-signal patterns only: e.g., changes that last ≥2 consecutive days and co-occur.
+  3. **CONCERNING TRENDS:** A trend is concerning if, on **any easy or recovery day**, the athlete logs RHR **5+ bpm above the week’s lowest RHR** for **≥2 consecutive days**, **AND** on those same days, stress is **≥6/10** or sleep is **≤6.5 hours**. This indicates potential overreaching/fatigue.
+  4. Treat hard sessions (threshold/long runs) as expected strain; do not flag single-day spikes tied to these workouts.
+  5. Keep language neutral and non-causal (“signals suggest” vs. “indicates”), and focus on brief, actionable coaching steps (2–3 sentences max).
+  6. **INSUFFICIENT DATA :** If **3 or more daily logs** are completely missing (mileage, stress, sleep, RHR, EHR, PE all 'N/A'), the analysis is compromised. In this case, **ONLY** output the text: **“Insufficient data for meaningful analysis. Please ensure consistent daily logging of all metrics.”**
+  7. If the number of completely missing logs is **less than 3**, proceed with trend analysis (Rule 3/4/8), but list the specific missing dates at the end.
+  8. If no pattern meets the above thresholds (Rule 3) and data is sufficient (Rule 6), state "No concerning trends were observed this week. The athlete maintained consistency, and key recovery signals remain stable."
+  
+  CRITICAL REQUIREMENTS:
+  * Keep recommendations under 200 words.
+  * Avoid medical terminology or diagnoses.
+  * Only reference data present in the week’s logs; if values are missing, acknowledge that.
+  * If there's insufficient data for analysis (Rule 6), state the exact required text.
+  * Clarify what dates you are referring to in your analysis.
+  
+  ANTI-HALLUCINATION RULES - CRITICAL:
+  * NEVER invent or assume any data not provided in the week’s logs.
+  * If the week shows zeros or missing fields, reflect that explicitly.
+  * Do not reference specific workouts/paces unless present.
+  
+  Return only the recommendation text, no additional formatting or explanations.`;
+    }
+    // Helper methods for testing
+    getRecords() {
+        return [...this.records];
+    }
+    getUsers() {
+        return [...this.users];
+    }
+    // Display methods
+    displayRecords() {
+        console.log("\n📊 Training Records");
+        console.log("==================");
+        if (this.records.length === 0) {
+            console.log("No records found.");
+            return;
+        }
+        // Group by athlete
+        const byAthlete = new Map();
+        for (const record of this.records) {
+            const athleteId = record.athlete.id;
+            if (!byAthlete.has(athleteId)) {
+                byAthlete.set(athleteId, []);
+            }
+            byAthlete.get(athleteId).push(record);
+        }
+        for (const [athleteId, records] of byAthlete) {
+            const athlete = records[0].athlete;
+            console.log(`\n👤 ${athlete.name} (${athlete.id})`);
+            console.log(`Baseline weekly mileage for ${athlete.name}: ${athlete.mileage} mi`);
+            for (const record of records.sort((a, b) => {
+                if (a.date.year !== b.date.year)
+                    return a.date.year - b.date.year;
+                if (a.date.month !== b.date.month)
+                    return a.date.month - b.date.month;
+                return a.date.day - b.date.day;
+            })) {
+                const dateStr = this.dateToString(record.date);
+                console.log(`  📅 ${dateStr}`);
+                if (record.coachRecommendations) {
+                    console.log(`    Coach: ${record.coachRecommendations.percentage}% - ${record.coachRecommendations.note}`);
+                }
+                else {
+                    console.log(`    Coach: No plan set`);
+                }
+                if (record.athleteData) {
+                    const data = record.athleteData;
+                    console.log(`    Athlete: ${data.mileage !== undefined ? data.mileage : "N/A"} miles, ` +
+                        `Stress: ${data.stress !== undefined ? data.stress : "N/A"}/10, ` +
+                        `Sleep: ${data.sleep !== undefined ? data.sleep : "N/A"}h, ` +
+                        `RHR: ${data.restingHeartRate !== undefined ? data.restingHeartRate : "N/A"} bpm, ` +
+                        `EHR: ${data.exerciseHeartRate !== undefined ? data.exerciseHeartRate : "N/A"} bpm, ` +
+                        `PE: ${data.perceivedExertion !== undefined ? data.perceivedExertion : "N/A"}/10`);
+                    if (data.notes !== undefined && data.notes !== "") {
+                        console.log(`    Notes: ${data.notes}`);
+                    }
+                }
+                else {
+                    console.log(`    Athlete: No data logged`);
+                }
+                if (record.mileageRecommendation !== undefined) {
+                    console.log(`    Recommendation: ${record.mileageRecommendation} miles`);
+                }
+                if (record.aiRecommendation) {
+                    console.log(`    🤖 AI: ${record.aiRecommendation}`);
+                }
+            }
+        }
+    }
+}
+exports.TrainingRecords = TrainingRecords;
+//# sourceMappingURL=training-records.js.map

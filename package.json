@@ -1,0 +1,29 @@
+{
+  "name": "training-records-ai",
+  "version": "1.0.0",
+  "description": "AI-augmented training records system for athlete monitoring",
+  "main": "dist/training-records-tests.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/training-records-tests.js",
+    "dev": "ts-node --transpile-only src/training-records-tests.ts",
+    "test": "npm run build && node dist/training-records-tests.js"
+  },
+  "keywords": [
+    "training",
+    "ai",
+    "athlete",
+    "gemini",
+    "typescript"
+  ],
+  "author": "Megan Diulus",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  }
+}
