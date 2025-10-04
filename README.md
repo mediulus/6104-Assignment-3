@@ -143,7 +143,7 @@ This feature is highly useful for two primary reasons. First, it keeps the coach
 
 [Test suit](../project%20implementation/training-records-ai/src/training-records-tests.ts)
 
-Run npm start from "6104-PORTFOLIO/project implementation/training-records-ai"
+Run npm start to test
 
 ## Explore richer test cases and prompts.
 
